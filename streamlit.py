@@ -5,10 +5,9 @@ import joblib
 import shap
 import matplotlib.pyplot as plt
 
-# 路径替换为您本地实际路径
-MODEL_PATH = r"C:\Users\ACER\Desktop\test\stt\MODEL_DATE\combine\stacking_logistic_regression_model.pkl"
-SCALER_PATH = r"C:\Users\ACER\Desktop\test\stt\MODEL_DATE\combine\scaler.pkl"
-DATA_PATH = r"C:\Users\ACER\Desktop\test\stt\MODEL_DATE\combine\combine.xlsx"
+MODEL_PATH = r"C:\Users\ACER\Desktop\stacking_logistic_regression_model.pkl"
+SCALER_PATH = r"C:\Users\ACER\Desktop\scaler.pkl"
+DATA_PATH = r"C:\Users\ACER\Desktop\combine.xlsx"
 
 @st.cache_resource
 def load_model_and_scaler():
@@ -50,23 +49,14 @@ label_map = {0: "very high-risk(< 1y)", 1: "high-risk(1 - 4y)", 2: "low-risk(> 4
 
 if st.button("Predict and explain"):
 
-    # 单条样本DataFrame
     input_df = pd.DataFrame([input_dict])
-
-    # 数值特征标准化
     input_num = input_df[numeric_features].values
     input_num_scaled = scaler.transform(input_num)
-
-    # 类别特征保持原编码
     input_cat = input_df[categorical_features].values
-
-    # 合并特征顺序需与模型训练一致
     input_processed = np.hstack([input_num_scaled, input_cat])
 
-    # 预测
     pred = model.predict(input_processed)
     pred_proba = model.predict_proba(input_processed)
-
     pred_label = label_map.get(pred[0], "未知类别")
 
     st.write("CRPC Risk：", pred_label)
@@ -74,11 +64,7 @@ if st.button("Predict and explain"):
     for i, p in enumerate(pred_proba[0]):
         st.write(f"{label_map.get(i, f'类别{i}')} : {p:.4f}")
 
-    # ------------- 单样本 SHAP 解释 ---------------
-
     st.markdown(" SHAP Explain")
-
-    # 取部分背景数据用于KernelExplainer
     background_df = data.sample(min(100, len(data)), random_state=42)
     background_num = background_df[numeric_features].values
     background_num_scaled = scaler.transform(background_num)
@@ -96,7 +82,6 @@ if st.button("Predict and explain"):
 
 
     class_idx = pred[0]
-    # shap_values[class_idx] 是形状 (1, n_features)
     shap_vals = shap_values[0,:,class_idx].reshape(1,-1)
 
     shap_exp = shap.Explanation(
@@ -106,15 +91,12 @@ if st.button("Predict and explain"):
         feature_names=feature_names
     )
 
-
-    # Waterfall plot
     st.write(f"SHAP waterfall plot")
     fig2, ax2 = plt.subplots(figsize=(12, 6))
     shap.plots.waterfall(shap_exp[0], show=False)
     st.pyplot(fig2)
     plt.close(fig2)
 
-    # 特征重要度条形图
     st.write(f"features important")
     fig3, ax3 = plt.subplots(figsize=(10, 6))
     abs_vals = np.abs(shap_vals[0])
