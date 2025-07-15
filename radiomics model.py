@@ -27,40 +27,24 @@ from sklearn.preprocessing import StandardScaler, label_binarize
 from imblearn.over_sampling import ADASYN
 from catboost import CatBoostClassifier
 
-# 设置字体（如果需要）
 plt.rcParams['font.family'] = 'Times New Roman'
-
-# 设置随机种子
 random_seed = 42
 np.random.seed(random_seed)
 
-# 加载数据
 dataFile = r"C:\Users\ACER\Desktop\test\stt\MODEL_DATE\radiology\ML\feature-final-selected-lasso-frecv.xlsx"
 data = pd.read_excel(dataFile)
-
-# 假设最后一列是目标变量
 X = data.iloc[:, :-1]
 y = data['label']
-
-# 获取类别数和类别列表
 unique_classes = np.unique(y)
 n_classes = len(unique_classes)
-
-# 划分训练集和测试集
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.3, random_state=random_seed, stratify=y
 )
-
-# 处理样本不平衡
 adasyn = ADASYN(random_state=random_seed)
 X_resampled, y_resampled = adasyn.fit_resample(X_train, y_train)
-
-# 标准化特征
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_resampled)
 X_test_scaled = scaler.transform(X_test)
-
-# 定义模型（针对多分类）
 models = {
     "Logistic Regression": LogisticRegression(multi_class='ovr', max_iter=1000, random_state=random_seed),
     "SVM": SVC(probability=True, kernel='rbf', decision_function_shape='ovr', random_state=random_seed),
@@ -72,7 +56,6 @@ models = {
     "CatBoost": CatBoostClassifier(silent=True, task_type='CPU', random_seed=random_seed)
 }
 
-# 定义超参数网格
 param_grids = {
     "Logistic Regression": {
         'C': [0.001, 0.01, 0.1, 1, 10, 100],
@@ -108,21 +91,9 @@ param_grids = {
     }
 }
 
-# Bootstrap计算置信区间函数（支持额外参数）
+
 def bootstrap_ci(y_true, y_pred_label=None, y_pred_prob=None, metric_func=None, 
                  n_bootstraps=1000, alpha=0.05, multi_class=False, **metric_kwargs):
-    """
-    利用bootstrap方法计算指标的置信区间
-    :param y_true: 真实标签，array-like
-    :param y_pred_label: 预测标签，array-like
-    :param y_pred_prob: 预测概率矩阵，shape (n_samples, n_classes)
-    :param metric_func: 计算指标的函数，传入y_true和其他参数
-    :param n_bootstraps: bootstrap重复次数
-    :param alpha: 置信水平，例如0.05对应95% CI
-    :param multi_class: 是否是多分类AUC(roc_auc_score特殊)
-    :param metric_kwargs: 传递给metric_func的其他参数，如average='macro'
-    :return: (指标均值, 下限, 上限)
-    """
     rng = np.random.RandomState(42)
     scores = []
 
@@ -148,9 +119,6 @@ def bootstrap_ci(y_true, y_pred_label=None, y_pred_prob=None, metric_func=None,
     mean_score = np.mean(scores)
 
     return mean_score, lower, upper
-
-
-# 训练模型并进行超参数调优
 best_models = {}
 results = []
 
@@ -171,32 +139,17 @@ for model_name, model in models.items():
         "Best Cross-Validated Macro AUC": best_score
     })
 
-# 转换结果为 DataFrame 并保存
 results_df = pd.DataFrame(results)
 print("模型调优结果：")
 print(results_df)
 results_df.to_excel(r"C:\Users\ACER\Desktop\test\stt\MODEL_DATE\radiology\ML\model_tuning_results.xlsx", index=False)
-
-# 评估模型性能并计算置信区间
 performance_results = []
 class_performance_results = []
-
-# 先二值化标签，用于计算每个类别的AUC
 y_test_bin = label_binarize(y_test, classes=unique_classes)
 
 def bootstrap_ci_binary(y_true, y_pred_label=None, y_pred_prob=None, metric_func=None,
                         n_bootstraps=1000, alpha=0.05, **metric_kwargs):
-    """
-    针对单个类别的二分类指标计算bootstrap置信区间
-    :param y_true: 二分类真实标签 (0/1)
-    :param y_pred_label: 二分类预测标签 (0/1)
-    :param y_pred_prob: 二分类预测概率 (概率得分)
-    :param metric_func: 计算指标的函数，传入y_true及相应参数
-    :param n_bootstraps: bootstrap次数
-    :param alpha: 显著水平，通常0.05
-    :param metric_kwargs: 传入metric_func的其他参数
-    :return: (均值, 下限, 上限)
-    """
+    
     rng = np.random.RandomState(42)
     scores = []
     y_true = np.array(y_true)
@@ -210,18 +163,13 @@ def bootstrap_ci_binary(y_true, y_pred_label=None, y_pred_prob=None, metric_func
     for i in range(n_bootstraps):
         indices = rng.choice(np.arange(n_samples), size=n_samples, replace=True)
         yt_sample = y_true[indices]
-
         if metric_func == roc_auc_score:
-            # ROC AUC用概率
             yp_sample = y_pred_prob[indices]
         else:
-            # 其他根据是否有预测标签选择
             yp_sample = y_pred_label[indices] if y_pred_label is not None else y_pred_prob[indices]
-
         try:
             score = metric_func(yt_sample, yp_sample, **metric_kwargs)
         except ValueError:
-            # 部分bootstrap样本标签单类时指标无法计算，跳过
             continue
         scores.append(score)
 
@@ -234,23 +182,15 @@ def bootstrap_ci_binary(y_true, y_pred_label=None, y_pred_prob=None, metric_func
 
 print("开始计算各模型性能及置信区间...")
 def predict_with_threshold(proba, threshold=0.5):
-    """
-    多分类阈值预测：
-    - 若某类别概率 > threshold，则视为候选类别
-    - 若有多个候选类别，取概率最大者
-    - 若无候选类别，取概率最大者
-    """
     candidates = np.where(proba > threshold)[1] if proba.ndim == 2 else (proba > threshold)
     y_pred = []
     for p in proba:
         above_thresh = np.where(p > threshold)[0]
         if len(above_thresh) == 0:
-            # 没有超过阈值，选概率最大类别
             y_pred.append(np.argmax(p))
         elif len(above_thresh) == 1:
             y_pred.append(above_thresh[0])
         else:
-            # 多个类别超过阈值，选概率最大的一个
             best_idx = above_thresh[np.argmax(p[above_thresh])]
             y_pred.append(best_idx)
     return np.array(y_pred)
@@ -260,8 +200,6 @@ for model_name, model in best_models.items():
     y_pred_proba = model.predict_proba(X_test_scaled)
     y_pred = predict_with_threshold(y_pred_proba, threshold=0.5)
 
-
-    # 计算整体指标及置信区间
     macro_f1_mean, macro_f1_low, macro_f1_high = bootstrap_ci(
         y_test, y_pred_label=y_pred, y_pred_prob=y_pred_proba, metric_func=f1_score,
         n_bootstraps=1000, alpha=0.05, multi_class=False, average='macro'
@@ -293,7 +231,6 @@ for model_name, model in best_models.items():
         "Macro ROC AUC": f"{roc_auc_mean:.3f} ({roc_auc_low:.3f}, {roc_auc_high:.3f})"
     })
 
-    # 计算每个类别的指标及置信区间
     for i, cls in enumerate(unique_classes):
         y_test_cls = (y_test == cls).astype(int)
         y_pred_cls_label = (y_pred == cls).astype(int)
@@ -343,7 +280,6 @@ print(performance_df)
 performance_df.to_excel(r"C:\Users\ACER\Desktop\test\stt\MODEL_DATE\radiology\ML\R-model_performance_SVI_CI.xlsx", index=False)
 class_performance_df.to_excel(r"C:\Users\ACER\Desktop\test\stt\MODEL_DATE\radiology\ML\class-performance-SVI-CI.xlsx", index=False)
 
-# 绘制混淆矩阵示例（以最后一个模型为例）
 plt.figure(figsize=(10, 8))
 cm = confusion_matrix(y_test, y_pred)
 disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=unique_classes)
@@ -357,9 +293,8 @@ from sklearn.metrics import roc_curve, auc
 import numpy as np
 import matplotlib.pyplot as plt
 
-# 参数：bootstrap次数
 n_bootstraps = 1000
-rng_seed = 42  # 固定随机种子保证结果可复现
+rng_seed = 42  
 rng = np.random.RandomState(rng_seed)
 
 plt.figure(figsize=(12, 8))
@@ -369,7 +304,6 @@ colors = ['#297fb8', '#f0c514', '#23a54f', '#f373e4', '#6e3383', '#cd6155', '#43
 for (model_name, model), color in zip(best_models.items(), colors):
     y_pred_proba = model.predict_proba(X_test_scaled)
     
-    # 原始数据计算macro ROC曲线和AUC
     fpr = dict()
     tpr = dict()
     roc_auc = dict()
@@ -383,20 +317,16 @@ for (model_name, model), color in zip(best_models.items(), colors):
     mean_tpr /= n_classes
     macro_roc_auc = auc(all_fpr, mean_tpr)
     
-    # Bootstrap估计95%置信区间
+   
     bootstrapped_scores = []
     n_samples = y_test_bin.shape[0]
     for _ in range(n_bootstraps):
-        # 有放回抽样样本索引
         indices = rng.randint(0, n_samples, n_samples)
         if len(np.unique(y_test_bin[indices], axis=0)) < n_classes:
-            # 若bootstrap样本中某一类别全缺失，跳过该样本
             continue
         
         y_true_boot = y_test_bin[indices]
         y_pred_boot = y_pred_proba[indices]
-        
-        # 计算每类ROC和AUC
         fpr_boot = dict()
         tpr_boot = dict()
         for i in range(n_classes):
@@ -409,13 +339,10 @@ for (model_name, model), color in zip(best_models.items(), colors):
         score = auc(all_fpr_boot, mean_tpr_boot)
         bootstrapped_scores.append(score)
     
-    # 计算置信区间
     sorted_scores = np.array(bootstrapped_scores)
     sorted_scores.sort()
     ci_lower = sorted_scores[int(0.025 * len(sorted_scores))]
     ci_upper = sorted_scores[int(0.975 * len(sorted_scores))]
-    
-    # 绘制ROC曲线
     plt.plot(
         all_fpr,
         mean_tpr,
@@ -461,7 +388,6 @@ output_cm_dir = r"C:\Users\ACER\Desktop\test\stt\picture\ML\confusion_matrices"
 os.makedirs(output_cm_dir, exist_ok=True)
 
 unique_classes = np.unique(y)
-# 确认unique_classes和category_labels长度一致及对应
 assert len(unique_classes) == len(category_labels), "unique_classes和category_labels长度不匹配！"
 
 for model_name, model in best_models.items():
@@ -476,18 +402,16 @@ for model_name, model in best_models.items():
 
     ax = plt.gca()
     disp.plot(cmap=custom_cmap, values_format='d', ax=ax)
-
-    # 隐藏自动绘制的数字文本
     for txt in ax.texts:
         txt.set_visible(False)
     
-    im = ax.images[0]  # **从ax获取热力图对象**
+    im = ax.images[0]  
 
     plt.title(f"{model_name}", fontsize=28, fontweight='bold')
     plt.xticks()
     
-    col_sum = cm.sum(axis=1, keepdims=True)  # 预测类别总数
-    col_sum_safe = np.where(col_sum == 0, 1, col_sum)  # 避免除零错误
+    col_sum = cm.sum(axis=1, keepdims=True) 
+    col_sum_safe = np.where(col_sum == 0, 1, col_sum)  
     cm_percent = cm / col_sum_safe * 100
 
     for i in range(cm.shape[0]):
@@ -518,15 +442,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 import os
-
-# 1. 读取Excel数据
 file_path = r"C:\Users\ACER\Desktop\test\stt\MODEL_DATE\radiology\ML\class-performance-SVI.xlsx"
 df = pd.read_excel(file_path)
-
-# 2. 指标名称和顺序，保持和雷达图绘制顺序一致
 metrics_names = ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'AUC']
-
-# 3. 雷达图绘制函数，支持标题文字颜色和圆角矩形边框颜色分别设置，图例颜色自定义
 def plot_radar(metrics, class_labels, metric_labels, legend_names=None, colors=None,
                legend_loc='upper center', title_text="Clinical Model",
                title_bg_width=1.0, title_bg_linewidth=1.5,
@@ -534,7 +452,7 @@ def plot_radar(metrics, class_labels, metric_labels, legend_names=None, colors=N
                title_y=1.0, fontsize=18, output_path=None):
 
     if title_text_color is None:
-        title_text_color = title_bg_color  # 默认文字颜色和矩形边框颜色相同
+        title_text_color = title_bg_color 
 
     num_vars = len(metric_labels)
     sides = 5
@@ -551,34 +469,22 @@ def plot_radar(metrics, class_labels, metric_labels, legend_names=None, colors=N
     if legend_names is None:
         legend_names = class_labels
 
-    # 绘制雷达图数据
     for idx, row in enumerate(metrics):
         vals = row[:sides].tolist()
         vals += vals[:1]  # 闭合
         angles_plot = np.append(pentagon_angles, pentagon_angles[0])
         ax.plot(angles_plot, vals, color=colors[idx], linewidth=2, label=str(legend_names[idx]))
         ax.scatter(angles_plot, vals, color=colors[idx], s=50, zorder=10, linewidth=0.5)
+        ax.set_theta_offset(0)
+        ax.set_theta_direction(1)
+        ax.grid(False)
+        ax.spines['polar'].set_visible(False)
+        ax.set_frame_on(False)
+        ax.patch.set_visible(False)
+        ax.set_rlim(0, 1)
+        ax.set_yticklabels([])
+        ax.set_xticks([])
 
-    # 设置极轴参数
-    ax.set_theta_offset(0)
-    ax.set_theta_direction(1)
-
-    # 关闭默认极坐标网格和边框
-    ax.grid(False)
-    ax.spines['polar'].set_visible(False)
-    ax.set_frame_on(False)
-    ax.patch.set_visible(False)
-
-    # 设置极轴范围
-    ax.set_rlim(0, 1)
-
-    # 不显示默认极坐标刻度标签
-    ax.set_yticklabels([])
-
-    # 关闭极坐标角度刻度标签（theta刻度）
-    ax.set_xticks([])
-
-    # 自定义绘制多层正五边形网格
     grid_radii = np.linspace(0.2, 1.0, 5)
     for r in grid_radii:
         xs = r * np.cos(pentagon_angles)
@@ -587,14 +493,12 @@ def plot_radar(metrics, class_labels, metric_labels, legend_names=None, colors=N
         ys = np.append(ys, ys[0])
         ax.plot(np.arctan2(ys, xs), np.hypot(xs, ys), color='gray', linestyle='dotted', linewidth=1, zorder=0)
 
-    # 绘制正五边形边框（最外围）
+   
     xs = np.cos(pentagon_angles)
     ys = np.sin(pentagon_angles)
     xs = np.append(xs, xs[0])
     ys = np.append(ys, ys[0])
     ax.plot(np.arctan2(ys, xs), np.hypot(xs, ys), color='gray', linestyle='-', linewidth=1.5, zorder=5)
-
-    # 添加径向数值刻度文本（顶部角度方向）
     r_ticks = grid_radii
     r_tick_labels = [f"{r:.1f}" for r in r_ticks]
     angle_for_labels = np.pi / 2
@@ -608,18 +512,15 @@ def plot_radar(metrics, class_labels, metric_labels, legend_names=None, colors=N
                 rotation=0,
                 rotation_mode='anchor')
 
-    # 添加径向网格线（中心到各顶点）
+   
     for angle in pentagon_angles:
         ax.plot([angle, angle], [0, 1], color='gray', linestyle='dotted', linewidth=1, zorder=0)
 
-    # 角度标签稍超出边界
     label_r = 1.2
     for angle, label in zip(pentagon_angles, display_labels):
         ax.text(angle, label_r, label, fontsize=26,
                 horizontalalignment='center',
                 verticalalignment='center')
-
-    # 添加图例
     legend = ax.legend(
         loc=legend_loc,
         bbox_to_anchor=(0.5, 1.27),
@@ -629,8 +530,6 @@ def plot_radar(metrics, class_labels, metric_labels, legend_names=None, colors=N
     )
     for text, color in zip(legend.get_texts(), colors):
         text.set_color(color)
-
-    # 添加标题及圆角矩形
     title = fig.suptitle(title_text, fontsize=28, y=title_y, color=title_text_color,fontweight='bold')
 
     fig.canvas.draw()
@@ -666,27 +565,20 @@ def plot_radar(metrics, class_labels, metric_labels, legend_names=None, colors=N
         print(f"保存图片：{output_path}")
     plt.show()
 
-
-# 4. 类别和图例名称处理
 all_classes = df['Class'].unique()
 
 custom_legend_dict = {
     0: 'very high-risk',
     1: 'high-risk',
     2: 'low-risk',
-    # 需要时可以继续补充
 }
 legend_names_all = [custom_legend_dict.get(cls, str(cls)) for cls in all_classes]
-
-# 5. 颜色配置示例
 base_colors = ['#e74c3c', '#3498db', '#f39c12']
 if len(all_classes) > len(base_colors):
     cmap = plt.cm.get_cmap('tab10', len(all_classes))
     colors_all_default = [cmap(i) for i in range(len(all_classes))]
 else:
     colors_all_default = base_colors[:len(all_classes)]
-
-# 不同模型对应的图例颜色（示例，按需定义）
 model_colors_dict = {
     'Logistic Regression': ['#c5dcec', '#76aed1', '#297fb8'],
     'SVM': ['#f8e598', '#f5d75b', '#f0c514'],
@@ -696,10 +588,8 @@ model_colors_dict = {
     'AdaBoost':['#f3cac6','#e39c96','#cd6155'],
     'Gradient Boosting':['#afdbde','#76a499','#43735d'],
     'CatBoost':['#f3c69f','#f79d51','#f97506']
-    # 这里请替换为您的实际模型名和颜色列表
 }
 
-# 不同模型标题颜色（示例）
 model_title_colors = {
     'Logistic Regression': '#297fb8',
     'SVM': '#f0c514',
@@ -711,18 +601,16 @@ model_title_colors = {
     'CatBoost':'#f97506'
 }
 
-# 6. 输出目录
+
 output_dir = r"C:\Users\ACER\Desktop\test\stt\picture\ML\radar"
 os.makedirs(output_dir, exist_ok=True)
 
-# 7. 按模型绘图
 models = df['Model'].unique()
 for model in models:
     df_model = df[df['Model'] == model]
     df_model = df_model.set_index('Class').reindex(all_classes)
     metrics_mat = df_model[metrics_names].to_numpy()
 
-    # 取颜色，默认fallback到默认颜色
     colors_this = model_colors_dict.get(model, colors_all_default)
     title_color = model_title_colors.get(model, '#16a085')  # 默认绿色
 
@@ -738,8 +626,8 @@ for model in models:
         title_text=f"{model}",
         title_bg_width=0.6,
         title_bg_linewidth=2,
-        title_bg_color=title_color,     # 圆角矩形边框颜色
-        title_text_color=title_color,   # 标题文字颜色
+        title_bg_color=title_color,    
+        title_text_color=title_color,   
         title_y=1.01,
         output_path=output_file
     )
